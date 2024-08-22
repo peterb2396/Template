@@ -6,11 +6,11 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useState, useEffect } from 'react'
 
-
+import config from "./app.json"
 
 import Purchases from 'react-native-purchases';
 
-const BASE_URL = "http://172.20.10.3:3001"//"http://localhost:3001"
+const BASE_URL = config.app.api
 
 // Demo video url
 const DEMO_URL = "https://youtu.be/udKK51jYs7M"
@@ -35,10 +35,7 @@ export default function App() {
   const [user, setUser] = useState()
   
 
-  const [init, setInit] = useState(false)
-  // Automatically check to see if we are logged in
-  const [preInit, setPreInit] = useState(true)
-  const [loading, setLoading] = useState(true)
+  const [init, setInit] = useState(true)
 
   // is this the help modal?
   const [isModalVisible, setModalVisible] = useState(false)
@@ -63,44 +60,10 @@ export default function App() {
       alert("Your message was recieved!")
     })
     .catch(() => {
-      alert("We're sorry, there was an error.\nPlease email MealGeniusApp@gmail.com")
+      alert(`We're sorry, there was an error.\nPlease email ${config.app.email}`)
     })
     setTextInputValue('');
   };
-
-  // When we authenticate, initialize.
-  useEffect(() =>
-  {
-    if (authenticated)
-    {
-      setInit(true)
-    }
-  }, [authenticated])
-
-  
-
-  useEffect( () =>
-    {
-      AsyncStorage.getItem('token').then(value => {
-        // If we are logged in, set auth to true to show the app and init
-        
-        if (value)
-        {
-          logIn(value)
-          // Hides the splash screen after attempting to log in.
-        }
-        else
-        {
-          // We are not log in, hide the splash screen (to present the login page)
-          setShowSplash(false)
-        }
-  
-        setPreInit(false)
-      })
-  
-    }, [preInit])
-
-
 
 
 
@@ -128,16 +91,6 @@ export default function App() {
   }, []);
 
   
-
-  // user logged in
-  useEffect(() => {
-
-    if (authenticated)
-    {
-
-    }
-  }, [authenticated])
-
   
 
   // Hide / show the help modal
@@ -212,6 +165,11 @@ export default function App() {
       if (value)
       {
         logIn(value)
+      }
+      else
+      {
+        // We are not log in, hide the splash screen (to present the login page)
+        setShowSplash(false)
       }
     })
     

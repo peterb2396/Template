@@ -5,7 +5,9 @@
       "red": "#F9063C",
       "blue": "#849bff",
       "creme": "#FFFFF1"
-    }
+    },
+    "api": "http://localhost:3001",
+    "email": "TemplateApp@template.example"
   
   },
   "expo": {
