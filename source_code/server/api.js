@@ -557,122 +557,124 @@ pingUrl();
 
   // Check the code the user provided
   router.post("/confirmDevice", async (req, response) => {
-      // fetch the pending code and device id 
-      let user = await User.findOne({email: req.body.email})
+    // fetch the pending code and device id 
+    let user = await User.findOne({email: req.body.email})
 
-      //let user = null
-          if (user) {
-              
-              // Check if the codes match, if so add the device
-              if (user.code == req.body.code)
-              {
-                // Before adding this device, check if we can activate trial tokens
-                Trial.findOne({}).then((trial_doc) => {
+    //let user = null
+        if (user) {
+            
+            // Check if the codes match, if so add the device
+            if (user.code == req.body.code)
+            {
+              // Before adding this device, check if we can activate trial tokens
+              Trial.findOne({}).then((trial_doc) => {
 
-                  const emailExists = trial_doc.emails.includes(user.email);
-                  const deviceExists = trial_doc.devices.includes(user.pending_device);
-                  let grant_trial = true
+                const emailExists = trial_doc.emails.includes(user.email);
+                const deviceExists = trial_doc.devices.includes(user.pending_device);
+                let new_user = true
 
-                  if (emailExists)
-                  {
-                    grant_trial = false
-                  }
-                  else
-                  {
-                    trial_doc.emails.push(user.email)
-                  }
-
-                  if (deviceExists)
-                  {
-                    grant_trial = false
-                  }
-                  else
-                  {
-                    trial_doc.devices.push(user.pending_device)
-                  }
-
-                  
-
-                  trial_doc.save()
-
-
-                  // Confirm email / grant trial if applicable
-                  User.findByIdAndUpdate(
-                    user._id,
-                    {
-                      // Grant trial if applicable
-                      $inc: { tokens: grant_trial? process.env.TRIAL_TOKENS: 0 },
-                      $set: { email_confirmed: true }, // Confirmed the email
-                      $push: { devices: user.pending_device}
-                    },
-                    { new: true }).then((updatedUser) => {
-
-                      if (updatedUser) {
-                        response.status(200).send({
-                          message: "Success!",
-                          trial: grant_trial
-                        });
-
-
-                      } else {
-                        response.status(404).send({
-                            message: "Could not locate user",
-                        });
-                      }
-
-                    })
-                })
-
-                  
-                    
-  
-              }
-              else{
-
-                // If this is their third failed code
-                if (user.code_attempts >= 2)
+                if (emailExists)
                 {
-                  // Return exhausted status
-                  response.status(429).send({
-                    message: "Too many requests!",
-                    });
-
-                  return
+                  new_user = false
+                }
+                else
+                {
+                  trial_doc.emails.push(user.email)
                 }
 
-                // First or second failure: Increase count and send wrong code 401
-                User.findByIdAndUpdate( user._id, { $inc: { code_attempts: 1 } },
+                if (deviceExists)
+                {
+                  new_user = false
+                }
+                else
+                {
+                  trial_doc.devices.push(user.pending_device)
+                }
+
+                
+
+                trial_doc.save()
+
+
+                // Confirm email / grant trial if applicable
+                User.findByIdAndUpdate(
+                  user._id,
+                  {
+                    // Grant trial if applicable
+                    $inc: { tokens: new_user? process.env.TRIAL_TOKENS: 0 },
+                    $set: { email_confirmed: true }, // Confirmed the email
+                    $push: { devices: user.pending_device}
+                  },
                   { new: true }).then((updatedUser) => {
 
                     if (updatedUser) {
-                      
+                      response.status(200).send({
+                        message: "Success!",
+                        new_user: new_user,
+                        new_account: !user.account_complete,
+                        token: user._id
+                      });
 
 
                     } else {
-                      console.log('Failed updating user document api/confirmDevice')
                       response.status(404).send({
                           message: "Could not locate user",
-          
                       });
                     }
 
                   })
+              })
 
-                  // Moved to here instead of if statement so the UI response does not wait on a DB operation
-                  response.status(401).send({
-                    message: "Wrong code!",
-                    });
                 
+                  
+
+            }
+            else{
+
+              // If this is their third failed code
+              if (user.code_attempts >= 2)
+              {
+                // Return exhausted status
+                response.status(429).send({
+                  message: "Too many requests!",
+                  });
+
+                return
               }
-      
-          //console.log('Code:', user.code);
-          //console.log('Pending Device:', user.pending_device);
-          } else {
-              response.status(404).send({
-                  message: "Could not find user",
-                });
-          }
-  })
+
+              // First or second failure: Increase count and send wrong code 401
+              User.findByIdAndUpdate( user._id, { $inc: { code_attempts: 1 } },
+                { new: true }).then((updatedUser) => {
+
+                  if (updatedUser) {
+                    
+
+
+                  } else {
+                    console.log('Failed updating user document api/confirmDevice')
+                    response.status(404).send({
+                        message: "Could not locate user",
+        
+                    });
+                  }
+
+                })
+
+                // Moved to here instead of if statement so the UI response does not wait on a DB operation
+                response.status(401).send({
+                  message: "Wrong code!",
+                  });
+              
+            }
+    
+        //console.log('Code:', user.code);
+        //console.log('Pending Device:', user.pending_device);
+        } else {
+            response.status(404).send({
+                message: "Could not find user",
+              });
+        }
+})
 
   // Send help email
   router.post("/contact", (request, response) => {
@@ -699,14 +701,182 @@ pingUrl();
   // register endpoint
   // makes an account
   router.post("/register", (request, response) => {
-      // hash the password
-      bcrypt
+    // hash the password
+    bcrypt
+      .hash(request.body.password, 5)
+      .then((hashedPassword) => {
+        // create a new user instance and collect the data
+
+        const user = new User({
+          email: request.body.email,
+          password: hashedPassword,
+          filters: {
+            sports: userSports // Initialize filters.sports with sports data
+          }
+        });
+  
+        // save the new user
+        user.save()
+          // return success if the new user is added to the database successfully
+          .then((result) => {
+            // Email me of the new user, if option is enabled
+            Options.findOne({}).then((option_doc) => {
+              if (option_doc.registerAlerts)
+              {
+                // Send the email
+                const mailOptions = {
+                  from: process.env.MAILER_USER,
+                  to: process.env.MAILER_USER,
+                  bcc: process.env.ADMIN_EMAIL,
+                  subject: `${process.env.APP_NAME} new user! 😁`,
+                  text: `${request.body.email} has signed up!`,
+                };
+              
+                // Send the email
+                transporter.sendMail(mailOptions, (error, info) => {
+                  if (error) {
+                    console.log('Error sending new user email (to myself):', error);
+                  } else {
+                  }
+                });
+                
+              }
+
+            })
+
+            response.status(201).send({
+              message: "User Created Successfully",
+              result,
+            });
+          })
+          // catch error if the new user wasn't added successfully to the database
+          .catch((errorResponse) => {
+            let errorMessage = null;
+
+            for (const key in errorResponse['errors']) {
+              if (errorResponse['errors'][key].properties && errorResponse['errors'][key].properties.message) {
+                errorMessage = errorResponse['errors'][key].properties.message;
+                break; // Stop iterating once found
+              }
+            }
+
+            if (errorMessage)
+            {
+              console.log(errorMessage)
+              response.status(403).send({
+                message: errorMessage,
+                errorResponse,
+              });
+            }
+            else{
+              response.status(500).send({
+                message: "User already exists!",
+                errorResponse,
+              });
+            }
+            
+            
+          });
+      })
+      // catch error if the password hash isn't successful
+      .catch((e) => {
+        response.status(500).send({
+          message: "Password was not hashed successfully",
+          e,
+        });
+      });
+  });
+  
+
+// login / register merged endpoint
+
+router.post("/log-or-reg", (request, response) => {
+    // check if email exists
+    
+    User.findOne({ email: request.body.email })
+    
+      // if email exists
+      .then((user) => {
+        
+        
+        // compare the password entered and the hashed password found
+        bcrypt
+          .compare(request.body.password, user.password)
+
+          // if the passwords match
+          .then(async (passwordCheck) => {
+
+            
+  
+            // check if password matches
+            if(!passwordCheck) {
+                return response.status(400).send({
+                message: "Passwords does not match",
+              });
+            }
+
+            console.log('Logging in..')
+
+            //Now check if device is permitted
+            if (bypass_confirmations || user.devices.includes(request.body.device) || user.email == "demo@demo.demo")
+            {
+
+                response.status(200).send({
+                    message: "Login Successful",
+                    token: user._id,
+                    new_account: !user.account_complete,
+                    new_user: false
+                });
+            }
+            else 
+            {
+                // Device not recognized. Send email code to recognize device!
+                // When code is entered, allow the login and add the device to DB.
+
+                sendCode(user, request.body.device).then((res) =>
+                {
+                  console.log("code sent!")
+                    // Code was sent successfully 
+                    response.status(422).send({
+                        message: res
+                    });
+
+                })
+                .catch((error) => {
+                  console.log(error)
+                  response.status(500).send({
+                    message: error,
+                });
+                })
+                
+            }
+
+            
+  
+            
+          })
+          // catch error if password does not match
+          .catch((error) => {
+            console.log(error)
+            response.status(400).send({
+              message: "Passwords do not match",
+              error,
+            });
+          });
+      })
+      // catch error if email does not exist
+      .catch((e) => {
+        
+        // @REGISTER : EMAIL NOT FOUND
+        // hash the password
+        bcrypt
         .hash(request.body.password, 5)
         .then((hashedPassword) => {
           // create a new user instance and collect the data
           const user = new User({
             email: request.body.email,
             password: hashedPassword,
+            email_confirmed: bypass_confirmations
           });
     
           // save the new user
@@ -720,7 +890,8 @@ pingUrl();
                   // Send the email
                   const mailOptions = {
                     from: process.env.MAILER_USER,
-                    to: process.env.ADMIN_EMAIL,
+                    to: process.env.MAILER_USER,
+                    bcc: process.env.ADMIN_EMAIL,
                     subject: `${process.env.APP_NAME} new user! 😁`,
                     text: `${request.body.email} has signed up!`,
                   };
@@ -737,36 +908,44 @@ pingUrl();
 
               })
 
-              response.status(201).send({
-                message: "User Created Successfully",
-                result,
-              });
+              if (bypass_confirmations)
+              {
+                response.status(200).send({
+                  message: "Registration Successful",
+                  token: user._id,
+                  new_account: true,
+                  new_user: false
+                });
+              }
+              else
+              {
+                // Now, send the code to verify the email
+                sendCode(user, request.body.device)
+                .then((res) =>
+                  {
+                    console.log("code sent!")
+                      // Code was sent successfully 
+                      response.status(422).send({
+                          message: res
+                      });
+    
+                  })
+                  .catch((error) => {
+                    console.log(error)
+                    response.status(500).send({
+                      message: error,
+                    });
+                  })
+              }
+
             })
             // catch error if the new user wasn't added successfully to the database
             .catch((errorResponse) => {
-              let errorMessage = null;
-
-              for (const key in errorResponse['errors']) {
-                if (errorResponse['errors'][key].properties && errorResponse['errors'][key].properties.message) {
-                  errorMessage = errorResponse['errors'][key].properties.message;
-                  break; // Stop iterating once found
-                }
-              }
-
-              if (errorMessage)
-              {
-                console.log(errorMessage)
-                response.status(403).send({
-                  message: errorMessage,
-                  errorResponse,
-                });
-              }
-              else{
+              
                 response.status(500).send({
-                  message: "User already exists!",
+                  message: "Internal error!",
                   errorResponse,
                 });
-              }
               
               
             });
@@ -778,96 +957,95 @@ pingUrl();
             e,
           });
         });
-    });
+
+      });
+  });
+
+  //login
+router.post("/login", (request, response) => {
+// check if email exists
+
+User.findOne({ email: request.body.email })
+
+  // if email exists
+  .then((user) => {
     
-
-  // login endpoint
-  // return desired user data to store locally???
-  // above would remove need for user endpoint
-  
-  router.post("/login", (request, response) => {
-      // check if email exists
-      console.log("hit login")
-      
-      User.findOne({ email: request.body.email })
-      
-        // if email exists
-        .then((user) => {
-          
-          
-          // compare the password entered and the hashed password found
-          bcrypt
-            .compare(request.body.password, user.password)
-
-            // if the passwords match
-            .then(async (passwordCheck) => {
-
-              
     
-              // check if password matches
-              if(!passwordCheck) {
-                  return response.status(400).send({
-                  message: "Passwords does not match",
+    // compare the password entered and the hashed password found
+    bcrypt
+      .compare(request.body.password, user.password)
+
+      // if the passwords match
+      .then(async (passwordCheck) => {
+
+        
+
+        // check if password matches
+        if(!passwordCheck) {
+            return response.status(400).send({
+            message: "Passwords does not match",
+          });
+        }
+
+        console.log('Logging in..')
+
+        //Now check if device is permitted
+        if (user.devices.includes(request.body.device) || user.email == "demo@demo.demo")
+        {
+
+            response.status(200).send({
+                message: "Login Successful",
+                token: user._id,
+                new_account: !user.account_complete,
+                new_user: false
+            });
+        }
+        else 
+        {
+            // Device not recognized. Send email code to recognize device!
+            // When code is entered, allow the login and add the device to DB.
+
+            sendCode(user, request.body.device)
+            .then((res) =>
+            {
+              console.log("code sent!")
+                // Code was sent successfully 
+                response.status(422).send({
+                    message: res
                 });
-              }
 
-              console.log('Logging in..')
-
-              //Now check if device is permitted
-              if (user.devices.includes(request.body.device) || user.email == "demo@demo.demo")
-              {
-
-                  response.status(200).send({
-                      message: "Login Successful",
-                      token: user._id,
-                  });
-              }
-              else 
-              {
-                  // Device not recognized. Send email code to recognize device!
-                  // When code is entered, allow the login and add the device to DB.
-
-                  sendCode(user, request.body.device).then((res) =>
-                  {
-                    console.log("code sent!")
-                      // Code was sent successfully 
-                      response.status(422).send({
-                          message: res,
-                          token: user._id
-                      });
-
-                  })
-                  .catch((error) => {
-                    console.log(error)
-                    response.status(500).send({
-                      message: error,
-                  });
-                  })
-                  
-              }
-
-              
-    
-              
             })
-            // catch error if password does not match
             .catch((error) => {
               console.log(error)
-              response.status(400).send({
-                message: "Passwords do not match",
-                error,
-              });
+              response.status(500).send({
+                message: error,
             });
-        })
-        // catch error if email does not exist
-        .catch((e) => {
-          
-          response.status(404).send({
-            message: "Email not found",
-            e,
-          });
+            })
+            
+        }
+
+        
+
+        
+      })
+      // catch error if password does not match
+      .catch((error) => {
+        console.log(error)
+        response.status(400).send({
+          message: "Passwords do not match",
+          error,
         });
+      });
+  })
+  // catch error if email does not exist
+  .catch((e) => {
+    
+    response.status(404).send({
+      message: "Email not found",
+      e,
     });
+  });
+});
 
  
 
